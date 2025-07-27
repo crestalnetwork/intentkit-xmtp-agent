@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  xmtp-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: intentkit-xmtp-agent
+    restart: unless-stopped
+    environment:
+      # These can be set in a .env file or passed as environment variables
+      - WALLET_KEY=${WALLET_KEY}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY}
+      - XMTP_ENV=${XMTP_ENV:-dev}
+      - NODE_ENV=${NODE_ENV:-production}
+    volumes:
+      # Persist the XMTP database
+      - xmtp_data:/app/.data/xmtp
+    # Uncomment if your agent serves HTTP endpoints
+    # ports:
+    #   - "3000:3000"
+    # Health check
+    healthcheck:
+      test: [ "CMD", "node", "-e", "console.log('Agent is running')" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  # Named volume for XMTP database persistence
+  xmtp_data:
+    driver: local
