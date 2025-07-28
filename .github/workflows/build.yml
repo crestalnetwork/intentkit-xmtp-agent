@@ -1,0 +1,149 @@
+name: Build Docker Image and Deploy
+
+on:
+  release:
+    types: [prereleased, released]
+
+jobs:
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Build Start
+        id: ci_start
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL }}
+            text: "Build started 👀"
+            attachments:
+              - color: "dbab09"
+                fields:
+                  - title: "Repository"
+                    short: true
+                    value: ${{ github.repository }}
+                  - title: "Status"
+                    short: true
+                    value: "In Progress"
+                  - title: "Branch"
+                    short: true
+                    value: ${{ github.ref }}
+                  - title: "Author"
+                    short: true
+                    value: ${{ github.actor }}
+                  - title: "Action"
+                    value: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@369eb591f429131d6889c46b94e711f089e6ca96
+        with:
+          # list of Docker images to use as base name for tags
+          images: |
+            058264535500.dkr.ecr.us-west-1.amazonaws.com/intentkit-xmtp-agent
+          # generate Docker tags based on the following events/attributes
+          tags: |
+            type=ref,event=pr
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          role-to-assume: arn:aws:iam::${{ secrets.AWS_ID }}:role/GithubActions
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push
+        uses: docker/build-push-action@48aba3b46d1b1fec4febb7c5d0c644b249a11355
+        with:
+          build-args: |
+            RELEASE=${{ github.event.release.tag_name || 'latest'}}
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Deploy to Amazon EKS Dev
+        if: ${{ github.event.action == 'prereleased' }}
+        run: |
+          VERSION=${{ github.event.release.tag_name }}
+          VERSION_NO_V=${VERSION#v}
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_DEV_CLUSTER }}
+          # kubectl set image -n testnet-dev deployment/xmtp-agent xmtp-agent=058264535500.dkr.ecr.us-west-1.amazonaws.com/intentkit-xmtp-agent:${VERSION_NO_V}
+
+      - name: Deploy to Amazon EKS Prod
+        if: ${{ github.event.action == 'released' }}
+        run: |
+          VERSION=${{ github.event.release.tag_name }}
+          VERSION_NO_V=${VERSION#v}
+          aws eks update-kubeconfig --region ${{ secrets.AWS_REGION }} --name ${{ secrets.EKS_PROD_CLUSTER }}
+          #kubectl set image -n testnet-prod deployment/xmtp-agent xmtp-agent=058264535500.dkr.ecr.us-west-1.amazonaws.com/intentkit-xmtp-agent:${VERSION_NO_V}
+
+      - name: Build Success
+        if: ${{ success() }}
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d
+        with:
+          method: chat.update
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL }}
+            ts: "${{ steps.ci_start.outputs.ts }}"
+            text: "Build Succeeded ✅"
+            attachments:
+              - color: "28a745"
+                fields:
+                  - title: "Repository"
+                    short: true
+                    value: ${{ github.repository }}
+                  - title: "Status"
+                    short: true
+                    value: "Completed"
+                  - title: "Branch"
+                    short: true
+                    value: ${{ github.ref }}
+                  - title: "Author"
+                    short: true
+                    value: ${{ github.actor }}
+                  - title: "Image"
+                    value: https://hub.docker.com/r/crestal/intentkit/tags
+
+      - name: Build Failure
+        if: ${{ failure() }}
+        uses: slackapi/slack-github-action@485a9d42d3a73031f12ec201c457e2162c45d02d
+        with:
+          method: chat.update
+          token: ${{ secrets.SLACK_BOT_TOKEN }}
+          payload: |
+            channel: ${{ secrets.SLACK_CHANNEL }}
+            ts: "${{ steps.ci_start.outputs.ts }}"
+            text: "Build Failed ❌"
+            attachments:
+              - color: "dc3545"
+                fields:
+                  - title: "Repository"
+                    short: true
+                    value: ${{ github.repository }}
+                  - title: "Status"
+                    short: true
+                    value: "Failed"
+                  - title: "Branch"
+                    short: true
+                    value: ${{ github.ref }}
+                  - title: "Author"
+                    short: true
+                    value: ${{ github.actor }}
+                  - title: "Action"
+                    value: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
