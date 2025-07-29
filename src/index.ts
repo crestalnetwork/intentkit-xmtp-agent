@@ -5,12 +5,12 @@ import {
     getEncryptionKeyFromHex,
     logAgentDetails,
     validateEnvironment,
-} from "@helpers/client";
+} from "./helpers/client.js";
 import {
     IntentKitClient,
     formatSkillCalls,
     type IntentKitMessage
-} from "@helpers/intentkit";
+} from "./helpers/intentkit.js";
 import { Client, type XmtpEnv } from "@xmtp/node-sdk";
 import { MarkdownCodec } from "@xmtp/content-type-markdown";
 

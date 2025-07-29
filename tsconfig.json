@@ -12,13 +12,7 @@
         "declaration": true,
         "outDir": "./dist",
         "rootDir": "./src",
-        "resolveJsonModule": true,
-        "baseUrl": ".",
-        "paths": {
-            "@helpers/*": [
-                "./src/helpers/*"
-            ]
-        }
+        "resolveJsonModule": true
     },
     "include": [
         "src/**/*"
