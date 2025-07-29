@@ -5,6 +5,7 @@ import { fromString, toString } from "uint8arrays";
 import { createWalletClient, http, toBytes } from "viem";
 import { toAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
+import fs from "node:fs";
 
 interface User {
     account: ReturnType<typeof toAccount>;
@@ -130,6 +131,23 @@ export const validateEnvironment = (requiredVars: string[]) => {
     }
 
     return result;
+};
+
+/**
+ * Get database path for XMTP client with proper directory structure
+ * @param description - Optional description for the database file
+ * @returns Database file path
+ */
+export const getDbPath = (description: string = "xmtp") => {
+    // Use the designated data directory from Docker setup
+    const dataDir = ".data/xmtp";
+
+    // Create database directory if it doesn't exist
+    if (!fs.existsSync(dataDir)) {
+        fs.mkdirSync(dataDir, { recursive: true });
+    }
+
+    return `${dataDir}/${description}.db3`;
 };
 
 /**

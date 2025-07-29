@@ -20,15 +20,11 @@ RUN yarn build
 # Production stage
 FROM node:22-slim AS production
 
-# Install dumb-init and CA certificates for proper signal handling and SSL
+# Install dumb-init and CA certificates for proper operation
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-
-# Create non-root user for security
-RUN groupadd --gid 1001 --system nodejs && \
-    useradd --uid 1001 --system --gid nodejs --shell /bin/bash --create-home agent
 
 # Set working directory
 WORKDIR /app
@@ -43,18 +39,11 @@ RUN yarn install --frozen-lockfile --production && \
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create data directory for XMTP database and ensure proper ownership
-RUN mkdir -p .data/xmtp && \
-    chown -R agent:nodejs .data
-
-# Change to non-root user
-USER agent
+# Create data directory for XMTP database
+RUN mkdir -p .data/xmtp
 
 # Declare volume for database persistence
 VOLUME ["/app/.data"]
-
-# Expose port (if your agent serves HTTP endpoints)
-EXPOSE 3000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \

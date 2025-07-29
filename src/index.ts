@@ -3,6 +3,7 @@ import {
     createSigner,
     createCdpConfig,
     getEncryptionKeyFromHex,
+    getDbPath,
     logAgentDetails,
     validateEnvironment,
 } from "./helpers/client.js";
@@ -79,9 +80,15 @@ async function main() {
         let client: Client;
 
         try {
+            const signerIdentifier = await Promise.resolve(signer.getIdentifier());
+            const identifier = signerIdentifier.identifier || 'default';
+            const dbPath = getDbPath(`${XMTP_ENV}-${identifier}`);
+            console.log(`├─ Database path: ${dbPath}`);
+
             client = await Client.create(signer, {
                 dbEncryptionKey,
                 env: XMTP_ENV as XmtpEnv,
+                dbPath,
                 codecs: [new MarkdownCodec()],
             });
             console.log("✅ XMTP client created successfully");
@@ -101,9 +108,13 @@ async function main() {
             // Try without MarkdownCodec
             console.log("🔄 Retrying without MarkdownCodec...");
             try {
+                const signerIdentifier = await Promise.resolve(signer.getIdentifier());
+                const identifier = signerIdentifier.identifier || 'default';
+                const dbPath = getDbPath(`${XMTP_ENV}-${identifier}-no-codec`);
                 client = await Client.create(signer, {
                     dbEncryptionKey,
                     env: XMTP_ENV as XmtpEnv,
+                    dbPath,
                 });
                 console.log("✅ XMTP client created successfully (without codec)");
             } catch (fallbackError: unknown) {
@@ -114,7 +125,7 @@ async function main() {
                 // Try with a fresh database
                 console.log("🔄 Retrying with fresh database...");
                 try {
-                    const freshDbPath = `./xmtp-fresh-${Date.now()}.db3`;
+                    const freshDbPath = getDbPath(`${XMTP_ENV}-fresh-${Date.now()}`);
                     client = await Client.create(signer, {
                         dbEncryptionKey,
                         env: XMTP_ENV as XmtpEnv,
@@ -131,10 +142,11 @@ async function main() {
                     if (XMTP_ENV === "dev") {
                         console.log("🔄 Final fallback: Trying production environment...");
                         try {
+                            const prodFallbackPath = getDbPath(`production-fallback-${Date.now()}`);
                             client = await Client.create(signer, {
                                 dbEncryptionKey,
                                 env: "production" as XmtpEnv,
-                                dbPath: `./xmtp-production-fallback-${Date.now()}.db3`,
+                                dbPath: prodFallbackPath,
                             });
                             console.log("✅ XMTP client created successfully (production fallback)");
                             console.log(`⚠️  Using production environment as fallback`);
