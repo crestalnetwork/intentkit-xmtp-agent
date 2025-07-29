@@ -1,13 +1,6 @@
 # Multi-stage build for TypeScript XMTP Agent
 FROM node:22-slim AS builder
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 \
-    make \
-    g++ \
-    && rm -rf /var/lib/apt/lists/*
-
 # Set working directory
 WORKDIR /app
 
@@ -27,9 +20,10 @@ RUN yarn build
 # Production stage
 FROM node:22-slim AS production
 
-# Install dumb-init for proper signal handling
+# Install dumb-init and CA certificates for proper signal handling and SSL
 RUN apt-get update && apt-get install -y --no-install-recommends \
     dumb-init \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
