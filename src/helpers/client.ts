@@ -1,46 +1,75 @@
 import { getRandomValues } from "node:crypto";
 import { IdentifierKind, type Signer, type Client, type XmtpEnv } from "@xmtp/node-sdk";
+import { CdpClient } from "@coinbase/cdp-sdk";
 import { fromString, toString } from "uint8arrays";
 import { createWalletClient, http, toBytes } from "viem";
-import { privateKeyToAccount } from "viem/accounts";
+import { toAccount } from "viem/accounts";
 import { sepolia } from "viem/chains";
 
 interface User {
-    key: `0x${string}`;
-    account: ReturnType<typeof privateKeyToAccount>;
+    account: ReturnType<typeof toAccount>;
     wallet: ReturnType<typeof createWalletClient>;
 }
 
-export const createUser = (key: `0x${string}`): User => {
-    const accountKey = key;
-    const account = privateKeyToAccount(accountKey);
-    return {
-        key: accountKey,
-        account,
-        wallet: createWalletClient({
+export interface CdpConfig {
+    apiKeyId: string;
+    apiKeySecret: string;
+    walletSecret: string;
+    walletAddress: string;
+}
+
+export const createUser = async (config: CdpConfig): Promise<User> => {
+    try {
+        const cdp = new CdpClient({
+            apiKeyId: config.apiKeyId,
+            apiKeySecret: config.apiKeySecret,
+            walletSecret: config.walletSecret,
+        });
+
+        const cdpAccount = await cdp.evm.getAccount({ address: config.walletAddress as `0x${string}` });
+        const account = toAccount(cdpAccount);
+
+        const walletClient = createWalletClient({
             account,
             chain: sepolia,
             transport: http(),
-        }),
-    };
+        });
+
+        return {
+            account,
+            wallet: walletClient,
+        };
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        throw new Error(`CDP account retrieval failed: ${errorMessage}. Check your CDP_API_KEY_ID, CDP_API_KEY_SECRET, CDP_WALLET_SECRET, and ensure the wallet address ${config.walletAddress} exists in your CDP account.`);
+    }
 };
 
-export const createSigner = (key: `0x${string}`): Signer => {
-    const user = createUser(key);
-    return {
-        type: "EOA",
+export const createSigner = async (config: CdpConfig): Promise<Signer> => {
+    const user = await createUser(config);
+    const signerAddress = user.account.address.toLowerCase();
+
+    const signer: Signer = {
+        type: "EOA" as const,
         getIdentifier: () => ({
             identifierKind: IdentifierKind.Ethereum,
-            identifier: user.account.address.toLowerCase(),
+            identifier: signerAddress,
         }),
         signMessage: async (message: string) => {
-            const signature = await user.wallet.signMessage({
-                message,
-                account: user.account,
-            });
-            return toBytes(signature);
+            try {
+                const signature = await user.wallet.signMessage({
+                    message,
+                    account: user.account,
+                });
+                return toBytes(signature);
+            } catch (signError: unknown) {
+                const signErrorMessage = signError instanceof Error ? signError.message : String(signError);
+                throw new Error(`CDP message signing failed: ${signErrorMessage}`);
+            }
         },
     };
+
+    return signer;
 };
 
 /**
@@ -62,6 +91,20 @@ export const getEncryptionKeyFromHex = (hex: string) => {
 };
 
 /**
+ * Create CDP configuration from environment variables
+ * @param env - Environment variables object (from validateEnvironment)
+ * @returns CDP configuration object
+ */
+export const createCdpConfig = (env: Record<string, string>): CdpConfig => {
+    return {
+        apiKeyId: env.CDP_API_KEY_ID,
+        apiKeySecret: env.CDP_API_KEY_SECRET,
+        walletSecret: env.CDP_WALLET_SECRET,
+        walletAddress: env.CDP_WALLET_ADDRESS,
+    };
+};
+
+/**
  * Validate required environment variables
  * @param requiredVars - Array of required environment variable names
  * @returns Object with validated environment variables
@@ -80,7 +123,7 @@ export const validateEnvironment = (requiredVars: string[]) => {
     }
 
     if (missing.length > 0) {
-        console.error(`❌ Missing required environment variables: ${missing.join(", ")}`);
+        console.error(`Missing required environment variables: ${missing.join(", ")}`);
         console.error("Please create a .env file with the required variables.");
         console.error("Run 'yarn gen:keys' to generate WALLET_KEY and ENCRYPTION_KEY.");
         process.exit(1);
@@ -94,9 +137,7 @@ export const validateEnvironment = (requiredVars: string[]) => {
  * @param client - XMTP client instance
  */
 export const logAgentDetails = async (client: Client) => {
-    console.log("🤖 Agent Details:");
-    console.log(`├─ Inbox ID: ${client.inboxId}`);
-    console.log(`├─ Installation ID: ${client.installationId}`);
-    console.log(`└─ Address: Available via signer`);
-    console.log("");
+    console.log("Agent Details:");
+    console.log(`Inbox ID: ${client.inboxId}`);
+    console.log(`Installation ID: ${client.installationId}`);
 }; 

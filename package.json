@@ -21,6 +21,7 @@
     "author": "",
     "license": "MIT",
     "dependencies": {
+        "@coinbase/cdp-sdk": "^1.30.0",
         "@xmtp/content-type-markdown": "^1.0.0",
         "@xmtp/node-sdk": "^3.2.2",
         "dotenv": "^16.4.5",

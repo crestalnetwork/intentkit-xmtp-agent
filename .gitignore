@@ -11,7 +11,7 @@ build/
 .env.new
 
 # XMTP database files
-*.db3
+*.db3*
 
 # Logs
 logs/

@@ -1,6 +1,7 @@
 import "dotenv/config";
 import {
     createSigner,
+    createCdpConfig,
     getEncryptionKeyFromHex,
     logAgentDetails,
     validateEnvironment,
@@ -15,36 +16,27 @@ import { MarkdownCodec } from "@xmtp/content-type-markdown";
 
 // Validate required environment variables
 const {
-    WALLET_KEY,
     ENCRYPTION_KEY,
     XMTP_ENV,
     INTENTKIT_API_URL,
-    INTENTKIT_API_KEY
+    INTENTKIT_API_KEY,
+    CDP_API_KEY_ID,
+    CDP_API_KEY_SECRET,
+    CDP_WALLET_SECRET
 } = validateEnvironment([
-    "WALLET_KEY",
     "ENCRYPTION_KEY",
     "XMTP_ENV",
     "INTENTKIT_API_URL",
-    "INTENTKIT_API_KEY"
+    "INTENTKIT_API_KEY",
+    "CDP_API_KEY_ID",
+    "CDP_API_KEY_SECRET",
+    "CDP_WALLET_SECRET"
 ]);
 
 async function main() {
     console.log("🚀 Starting IntentKit XMTP Agent...\n");
 
     try {
-        // Initialize XMTP client
-        const signer = createSigner(WALLET_KEY as `0x${string}`);
-        const dbEncryptionKey = getEncryptionKeyFromHex(ENCRYPTION_KEY);
-
-        // Register markdown codec for rich text responses
-        const client = await Client.create(signer, {
-            dbEncryptionKey,
-            env: XMTP_ENV as XmtpEnv,
-            codecs: [new MarkdownCodec()],
-        });
-
-        await logAgentDetails(client);
-
         // Initialize IntentKit client
         const intentKit = new IntentKitClient(INTENTKIT_API_URL, INTENTKIT_API_KEY);
         console.log("✅ IntentKit client initialized");
@@ -57,6 +49,111 @@ async function main() {
             throw new Error(`IntentKit API validation failed: ${connectionTest.error}`);
         }
         console.log("✅ IntentKit API connection validated\n");
+
+        // Get the EVM wallet address for the authenticated agent
+        const agentWalletAddress = await intentKit.getAgentWalletAddress();
+        if (!agentWalletAddress) {
+            throw new Error("Failed to get agent wallet address");
+        }
+
+        // Initialize XMTP client
+        console.log("🔧 Initializing XMTP client...");
+        const cdpConfig = createCdpConfig({
+            CDP_API_KEY_ID,
+            CDP_API_KEY_SECRET,
+            CDP_WALLET_SECRET,
+            CDP_WALLET_ADDRESS: agentWalletAddress
+        });
+        const signer = await createSigner(cdpConfig);
+        console.log("✅ Signer created successfully");
+
+        const dbEncryptionKey = getEncryptionKeyFromHex(ENCRYPTION_KEY);
+        console.log("✅ Database encryption key prepared");
+
+        // Register markdown codec for rich text responses
+        console.log("📝 Creating XMTP client with markdown codec...");
+        console.log(`├─ XMTP Environment: ${XMTP_ENV}`);
+        console.log(`├─ Database encryption key length: ${dbEncryptionKey.length} bytes`);
+        console.log(`└─ Codecs: MarkdownCodec`);
+
+        let client: Client;
+
+        try {
+            client = await Client.create(signer, {
+                dbEncryptionKey,
+                env: XMTP_ENV as XmtpEnv,
+                codecs: [new MarkdownCodec()],
+            });
+            console.log("✅ XMTP client created successfully");
+        } catch (clientError: unknown) {
+            const clientErrorMessage = clientError instanceof Error ? clientError.message : String(clientError);
+            const signerIdentifier = signer.getIdentifier();
+            const signerAddress = typeof signerIdentifier === 'object' && 'identifier' in signerIdentifier
+                ? signerIdentifier.identifier
+                : 'unknown';
+
+            console.error("❌ XMTP Client Creation Failed:");
+            console.error(`├─ Error: ${clientErrorMessage}`);
+            console.error(`├─ XMTP_ENV: ${XMTP_ENV}`);
+            console.error(`├─ Signer address: ${signerAddress}`);
+            console.error(`└─ DB encryption key valid: ${dbEncryptionKey.length === 32}`);
+
+            // Try without MarkdownCodec
+            console.log("🔄 Retrying without MarkdownCodec...");
+            try {
+                client = await Client.create(signer, {
+                    dbEncryptionKey,
+                    env: XMTP_ENV as XmtpEnv,
+                });
+                console.log("✅ XMTP client created successfully (without codec)");
+            } catch (fallbackError: unknown) {
+                const fallbackErrorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+                console.error("❌ XMTP Client creation failed even without codec:");
+                console.error(`└─ Error: ${fallbackErrorMessage}`);
+
+                // Try with a fresh database
+                console.log("🔄 Retrying with fresh database...");
+                try {
+                    const freshDbPath = `./xmtp-fresh-${Date.now()}.db3`;
+                    client = await Client.create(signer, {
+                        dbEncryptionKey,
+                        env: XMTP_ENV as XmtpEnv,
+                        dbPath: freshDbPath,
+                    });
+                    console.log("✅ XMTP client created successfully (with fresh database)");
+                    console.log(`⚠️  Using fresh database: ${freshDbPath}`);
+                } catch (freshDbError: unknown) {
+                    const freshDbErrorMessage = freshDbError instanceof Error ? freshDbError.message : String(freshDbError);
+                    console.error("❌ XMTP Client creation failed with fresh database:");
+                    console.error(`└─ Error: ${freshDbErrorMessage}`);
+
+                    // Final fallback: Try using production environment if we were using dev
+                    if (XMTP_ENV === "dev") {
+                        console.log("🔄 Final fallback: Trying production environment...");
+                        try {
+                            client = await Client.create(signer, {
+                                dbEncryptionKey,
+                                env: "production" as XmtpEnv,
+                                dbPath: `./xmtp-production-fallback-${Date.now()}.db3`,
+                            });
+                            console.log("✅ XMTP client created successfully (production fallback)");
+                            console.log(`⚠️  Using production environment as fallback`);
+                        } catch (prodFallbackError: unknown) {
+                            const prodErrorMessage = prodFallbackError instanceof Error ? prodFallbackError.message : String(prodFallbackError);
+                            console.error("❌ Production environment fallback also failed:");
+                            console.error(`└─ Error: ${prodErrorMessage}`);
+                            throw new Error(`All XMTP Client creation attempts failed. This suggests a network connectivity issue. Please check:\n1. Internet connection\n2. Firewall/proxy settings\n3. Try different network (mobile hotspot)\n\nErrors: Production: ${prodErrorMessage}, Fresh DB: ${freshDbErrorMessage}, Codec-less: ${fallbackErrorMessage}, Original: ${clientErrorMessage}`);
+                        }
+                    } else {
+                        throw new Error(`XMTP Client creation failed completely. This suggests a network connectivity issue. Please check:\n1. Internet connection\n2. Firewall/proxy settings\n3. Try different network (mobile hotspot)\n\nErrors: Fresh DB: ${freshDbErrorMessage}, Codec-less: ${fallbackErrorMessage}, Original: ${clientErrorMessage}`);
+                    }
+                }
+            }
+        }
+
+        console.log("📊 Logging agent details...");
+        await logAgentDetails(client);
+        console.log("✅ Agent details logged successfully");
 
         // Sync conversations before streaming
         console.log("🔄 Syncing conversations...");

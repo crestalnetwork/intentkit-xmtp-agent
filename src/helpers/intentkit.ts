@@ -34,6 +34,15 @@ export interface IntentKitChat {
     updated_at: string;
 }
 
+export interface IntentKitAgent {
+    id: string;
+    name: string;
+    description?: string;
+    evm_wallet_address: string;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface IntentKitStreamResponse {
     data?: IntentKitMessage;
     error?: string;
@@ -394,6 +403,43 @@ export class IntentKitClient {
             size: this.chatCache.size,
             entries: Array.from(this.chatCache.entries())
         };
+    }
+
+    /**
+     * Get the EVM wallet address for the authenticated agent.
+     * Uses the GET /agent endpoint which returns information about the current agent.
+     */
+    async getAgentWalletAddress(): Promise<string | null> {
+        try {
+            const url = `${this.baseUrl}/v1/agent`;
+            console.log(`🔗 Fetching agent wallet address`);
+            console.log(`📡 GET ${url}`);
+
+            const response = await fetch(url, {
+                method: "GET",
+                headers: {
+                    "Content-Type": "application/json",
+                    ...(this.apiKey && { "Authorization": `Bearer ${this.apiKey}` }),
+                },
+            });
+
+            console.log(`📊 Agent response: ${response.status} ${response.statusText}`);
+
+            if (!response.ok) {
+                const errorText = await response.text();
+                console.error(`❌ Failed to get agent wallet address: ${errorText}`);
+                return null;
+            }
+
+            const data: IntentKitAgent = await response.json();
+            console.log(`✅ Agent wallet address: ${data.evm_wallet_address}`);
+            return data.evm_wallet_address;
+
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error(`Error getting agent wallet address:`, errorMessage);
+            return null;
+        }
     }
 }
 
