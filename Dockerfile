@@ -1,5 +1,12 @@
 # Multi-stage build for TypeScript XMTP Agent
-FROM node:22-alpine AS builder
+FROM node:22-slim AS builder
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -7,7 +14,7 @@ WORKDIR /app
 # Copy package files for dependency installation
 COPY package.json yarn.lock ./
 
-# Install dependencies
+# Install dependencies (including dev dependencies for building)
 RUN yarn install --frozen-lockfile
 
 # Copy source code and configuration files
@@ -18,14 +25,16 @@ COPY tsconfig.json ./
 RUN yarn build
 
 # Production stage
-FROM node:22-alpine AS production
+FROM node:22-slim AS production
 
 # Install dumb-init for proper signal handling
-RUN apk add --no-cache dumb-init
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    dumb-init \
+    && rm -rf /var/lib/apt/lists/*
 
 # Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S agent -u 1001
+RUN groupadd --gid 1001 --system nodejs && \
+    useradd --uid 1001 --system --gid nodejs --shell /bin/bash --create-home agent
 
 # Set working directory
 WORKDIR /app
@@ -40,19 +49,22 @@ RUN yarn install --frozen-lockfile --production && \
 # Copy built application from builder stage
 COPY --from=builder /app/dist ./dist
 
-# Create data directory for XMTP database
+# Create data directory for XMTP database and ensure proper ownership
 RUN mkdir -p .data/xmtp && \
     chown -R agent:nodejs .data
 
 # Change to non-root user
 USER agent
 
+# Declare volume for database persistence
+VOLUME ["/app/.data"]
+
 # Expose port (if your agent serves HTTP endpoints)
 EXPOSE 3000
 
-# Health check (optional - adjust based on your agent's capabilities)
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD node -e "console.log('Agent is running')" || exit 1
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD node -e "process.exit(0)" || exit 1
 
 # Use dumb-init to handle signals properly
 ENTRYPOINT ["dumb-init", "--"]
