@@ -10,10 +10,15 @@ import {
 import {
     IntentKitClient,
     formatSkillCalls,
+    processIntentKitMessageForXmtp,
     type IntentKitMessage
 } from "./helpers/intentkit.js";
 import { Client, type XmtpEnv } from "@xmtp/node-sdk";
 import { MarkdownCodec } from "@xmtp/content-type-markdown";
+import {
+    WalletSendCallsCodec,
+    ContentTypeWalletSendCalls
+} from "@xmtp/content-type-wallet-send-calls";
 
 // Validate required environment variables
 const {
@@ -71,13 +76,13 @@ async function main() {
         const dbEncryptionKey = getEncryptionKeyFromHex(ENCRYPTION_KEY);
         console.log("✅ Database encryption key prepared");
 
-        // Register markdown codec for rich text responses
-        console.log("📝 Creating XMTP client with markdown codec...");
+        // Register codecs for rich text responses and wallet transactions
+        console.log("📝 Creating XMTP client with codecs...");
         console.log(`├─ XMTP Environment: ${XMTP_ENV}`);
         console.log(`├─ Database encryption key length: ${dbEncryptionKey.length} bytes`);
-        console.log(`└─ Codecs: MarkdownCodec`);
+        console.log(`└─ Codecs: MarkdownCodec, WalletSendCallsCodec`);
 
-        let client: Client;
+        let client: any;
 
         try {
             const signerIdentifier = await Promise.resolve(signer.getIdentifier());
@@ -89,7 +94,7 @@ async function main() {
                 dbEncryptionKey,
                 env: XMTP_ENV as XmtpEnv,
                 dbPath,
-                codecs: [new MarkdownCodec()],
+                codecs: [new MarkdownCodec(), new WalletSendCallsCodec()],
             });
             console.log("✅ XMTP client created successfully");
         } catch (clientError: unknown) {
@@ -105,8 +110,8 @@ async function main() {
             console.error(`├─ Signer address: ${signerAddress}`);
             console.error(`└─ DB encryption key valid: ${dbEncryptionKey.length === 32}`);
 
-            // Try without MarkdownCodec
-            console.log("🔄 Retrying without MarkdownCodec...");
+            // Try without codecs
+            console.log("🔄 Retrying without codecs...");
             try {
                 const signerIdentifier = await Promise.resolve(signer.getIdentifier());
                 const identifier = signerIdentifier.identifier || 'default';
@@ -116,7 +121,7 @@ async function main() {
                     env: XMTP_ENV as XmtpEnv,
                     dbPath,
                 });
-                console.log("✅ XMTP client created successfully (without codec)");
+                console.log("✅ XMTP client created successfully (without codecs)");
             } catch (fallbackError: unknown) {
                 const fallbackErrorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
                 console.error("❌ XMTP Client creation failed even without codec:");
@@ -287,32 +292,35 @@ async function handleIntentKitResponse(
     response: IntentKitMessage
 ) {
     try {
+        // Process the message for XMTP, checking for wallet send calls attachments
+        const processed = processIntentKitMessageForXmtp(response);
+
+        if (processed.contentType === "xmtp/content-type-wallet-send-calls") {
+            // Send as wallet send calls content type with explicit content type
+            await conversation.send(processed.content, ContentTypeWalletSendCalls);
+            console.log("💳 Sent wallet transaction request");
+        } else {
+            // Send as regular text/markdown
+            await conversation.send(processed.content);
+            console.log(`📝 Sent ${response.author_type} response`);
+        }
+
+        // Log additional context based on author type
         switch (response.author_type) {
-            case "agent":
-                // Send as plain text - the MarkdownCodec will handle formatting if needed
-                await conversation.send(response.message);
-                console.log("📝 Sent agent response");
-                break;
-
             case "system":
-                // System messages are errors - send as plain text with error emoji
-                await conversation.send(`🚨 ${response.message}`);
-                console.log("⚠️  Sent system error message");
+                console.log("⚠️  System message processed");
                 break;
-
             case "skill":
-                // Render skill calls information
-                const skillInfo = formatSkillCalls(response.skill_calls);
-                await conversation.send(skillInfo);
-                console.log("🔧 Sent skill execution details");
+                console.log("🔧 Skill execution details processed");
                 break;
-
+            case "agent":
+                console.log("🤖 Agent response processed");
+                break;
             default:
-                // Fallback for unknown author types
-                await conversation.send(response.message);
-                console.log(`❓ Sent response with unknown author_type: ${response.author_type}`);
+                console.log(`❓ Response with author_type: ${response.author_type} processed`);
                 break;
         }
+
     } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error(`❌ Failed to send response: ${errorMessage}`);

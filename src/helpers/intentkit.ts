@@ -1,6 +1,12 @@
 /**
  * IntentKit API Response Types
  */
+export interface IntentKitMessageAttachment {
+    type: "link" | "image" | "file" | "xmtp";
+    url?: string | null;
+    json?: Record<string, any> | null;
+}
+
 export interface IntentKitMessage {
     id?: string;
     agent_id?: string;
@@ -19,6 +25,7 @@ export interface IntentKitMessage {
         credit_event_id?: string;
         credit_cost?: string;
     }>;
+    attachments?: IntentKitMessageAttachment[];
     search_mode?: boolean;
     super_mode?: boolean;
     created_at?: string;
@@ -47,6 +54,22 @@ export interface IntentKitStreamResponse {
     data?: IntentKitMessage;
     error?: string;
     done?: boolean;
+}
+
+/**
+ * XMTP Wallet Send Calls Content Types
+ * Based on @xmtp/content-type-wallet-send-calls
+ */
+export interface WalletSendCall {
+    to: string;
+    data?: string;
+    value?: string;
+}
+
+export interface WalletSendCallsContent {
+    calls: WalletSendCall[];
+    chainId?: number;
+    description?: string;
 }
 
 /**
@@ -327,7 +350,11 @@ export class IntentKitClient {
             }
 
             // If it's a direct IntentKitMessage, wrap it in stream response format
-            if (directParse.author_type && directParse.message) {
+            // Allow empty message if there are skill_calls or attachments (especially for skill author_type)
+            if (directParse.author_type &&
+                (directParse.message ||
+                    directParse.skill_calls?.length > 0 ||
+                    directParse.attachments?.length > 0)) {
                 return {
                     data: directParse as IntentKitMessage,
                     done: false
@@ -337,7 +364,11 @@ export class IntentKitClient {
             // Handle potential array responses
             if (Array.isArray(directParse) && directParse.length > 0) {
                 const firstItem = directParse[0];
-                if (firstItem.author_type && firstItem.message) {
+                // Allow empty message if there are skill_calls or attachments
+                if (firstItem.author_type &&
+                    (firstItem.message ||
+                        firstItem.skill_calls?.length > 0 ||
+                        firstItem.attachments?.length > 0)) {
                     return {
                         data: firstItem as IntentKitMessage,
                         done: false
@@ -345,7 +376,7 @@ export class IntentKitClient {
                 }
             }
 
-            console.warn('Unknown response format:', jsonStr.substring(0, 200));
+            console.warn('Unknown response format:', jsonStr);
             return null;
 
         } catch (error) {
@@ -466,4 +497,145 @@ export const formatSkillCalls = (skillCalls: IntentKitMessage["skill_calls"]): s
     });
 
     return formattedCalls.join("\n\n");
+};
+
+/**
+ * Check if a message has XMTP attachments
+ */
+export const hasXmtpAttachments = (message: IntentKitMessage): boolean => {
+    return !!(message.attachments?.some(attachment => attachment.type === "xmtp"));
+};
+
+/**
+ * Extract XMTP wallet send calls from message attachments
+ * The json field already contains formatted WalletSendCalls ready to send
+ */
+export const extractXmtpWalletSendCalls = (message: IntentKitMessage): any | null => {
+    if (!message.attachments) {
+        return null;
+    }
+
+    const xmtpAttachment = message.attachments.find(attachment => attachment.type === "xmtp");
+    if (!xmtpAttachment || !xmtpAttachment.json) {
+        return null;
+    }
+
+    try {
+        // The XMTP attachment json field is already formatted by the Agent
+        // and ready to be sent directly as WalletSendCalls
+        return xmtpAttachment.json;
+    } catch (error) {
+        console.error("Failed to parse XMTP wallet send calls:", error);
+        return null;
+    }
+};
+
+/**
+ * Format XMTP wallet send calls for display
+ */
+export const formatXmtpWalletSendCalls = (walletSendCalls: WalletSendCallsContent): string => {
+    let result = "💳 **Transaction Request**\n";
+
+    if (walletSendCalls.description) {
+        result += `📝 Description: ${walletSendCalls.description}\n`;
+    }
+
+    if (walletSendCalls.chainId) {
+        result += `⛓️ Chain ID: ${walletSendCalls.chainId}\n`;
+    }
+
+    result += `📋 Calls (${walletSendCalls.calls.length}):\n`;
+
+    walletSendCalls.calls.forEach((call, index) => {
+        result += `\n${index + 1}. **Transaction**\n`;
+        result += `   📍 To: \`${call.to}\`\n`;
+
+        if (call.value && call.value !== "0") {
+            // Convert wei to ETH for display if it's a reasonable number
+            try {
+                const valueInWei = BigInt(call.value);
+                const valueInEth = Number(valueInWei) / 1e18;
+                result += `   💰 Value: ${call.value} wei (≈ ${valueInEth.toFixed(6)} ETH)\n`;
+            } catch {
+                result += `   💰 Value: ${call.value} wei\n`;
+            }
+        }
+
+        if (call.data && call.data !== "0x") {
+            result += `   📄 Data: \`${call.data.substring(0, 42)}${call.data.length > 42 ? '...' : ''}\`\n`;
+        }
+    });
+
+    return result;
+};
+
+/**
+ * Process IntentKit message and return appropriate content for XMTP
+ * This function checks for XMTP attachments and returns the appropriate content type
+ */
+export const processIntentKitMessageForXmtp = (message: IntentKitMessage): {
+    content: any;
+    contentType?: string;
+    displayText: string;
+} => {
+    // Check for XMTP wallet send calls first (highest priority)
+    if (hasXmtpAttachments(message)) {
+        const walletSendCalls = extractXmtpWalletSendCalls(message);
+        if (walletSendCalls) {
+            // Create display text for the transaction
+            let displayText = message.message || "";
+            if (walletSendCalls.calls && Array.isArray(walletSendCalls.calls)) {
+                const transactionText = `💳 Transaction Request (${walletSendCalls.calls.length} calls)` +
+                    (walletSendCalls.description ? `\n📝 ${walletSendCalls.description}` : "");
+
+                if (displayText) {
+                    displayText += "\n\n" + transactionText;
+                } else {
+                    displayText = transactionText;
+                }
+            }
+
+            return {
+                content: walletSendCalls,
+                contentType: "xmtp/content-type-wallet-send-calls",
+                displayText
+            };
+        }
+    }
+
+    // Default to text message
+    let displayText = message.message || "";
+
+    // Add skill calls if present
+    if (message.skill_calls && message.skill_calls.length > 0) {
+        const skillCallsText = formatSkillCalls(message.skill_calls);
+        if (displayText) {
+            displayText += "\n\n" + skillCallsText;
+        } else {
+            displayText = skillCallsText;
+        }
+    }
+
+    // Add other attachments info if present
+    if (message.attachments && message.attachments.length > 0) {
+        const nonXmtpAttachments = message.attachments.filter(att => att.type !== "xmtp");
+        if (nonXmtpAttachments.length > 0) {
+            const attachmentsText = `📎 Attachments (${nonXmtpAttachments.length}):` +
+                nonXmtpAttachments.map((att, idx) =>
+                    `\n${idx + 1}. ${att.type}: ${att.url || 'embedded content'}`
+                ).join("");
+
+            if (displayText) {
+                displayText += "\n\n" + attachmentsText;
+            } else {
+                displayText = attachmentsText;
+            }
+        }
+    }
+
+    return {
+        content: displayText,
+        contentType: "text",
+        displayText
+    };
 }; 
