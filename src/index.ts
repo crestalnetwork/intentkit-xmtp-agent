@@ -191,9 +191,6 @@ async function main() {
 
                 console.log("👂 Waiting for messages...\n");
                 for await (const message of stream) {
-                    console.log("👂 Received message:", message);
-                    const inboxState = await client.preferences.inboxState()
-                    console.log("👂 Inbox state:", inboxState);
                     // Skip messages from the agent itself or non-text messages
                     if (
                         message?.senderInboxId.toLowerCase() === client.inboxId.toLowerCase() ||
@@ -244,6 +241,27 @@ async function processMessage(
 
         console.log(`📨 Received message from ${senderInboxId}: "${messageContent}"`);
 
+        // Get inbox state to extract the wallet address
+        const inboxState = await client.preferences.inboxStateFromInboxIds([senderInboxId]);
+        if (!inboxState || inboxState.length === 0) {
+            console.log("❌ Could not get inbox state for sender");
+            return;
+        }
+
+        // Find the wallet address (identifierKind = 0)
+        const senderInfo = inboxState[0];
+        const walletIdentifier = senderInfo.identifiers.find(
+            (identifier: any) => identifier.identifierKind === 0
+        );
+
+        if (!walletIdentifier) {
+            console.log("❌ Could not find wallet address for sender");
+            return;
+        }
+
+        const userWalletAddress = walletIdentifier.identifier;
+        console.log(`💳 Using wallet address as user_id: ${userWalletAddress}`);
+
         // Get the conversation to reply to
         const conversation = await client.conversations.getConversationById(
             message.conversationId
@@ -254,11 +272,11 @@ async function processMessage(
             return;
         }
 
-        // Forward message to IntentKit and process streaming responses
+        // Forward message to IntentKit using wallet address as user_id
         console.log("🔄 Forwarding to IntentKit...");
 
         let responseCount = 0;
-        for await (const response of intentKit.sendMessage(senderInboxId, messageContent)) {
+        for await (const response of intentKit.sendMessage(userWalletAddress, messageContent)) {
             responseCount++;
             console.log(`📤 Processing IntentKit response ${responseCount}:`, response.author_type);
 
