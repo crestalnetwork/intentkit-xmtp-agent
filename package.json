@@ -21,16 +21,16 @@
     "author": "",
     "license": "MIT",
     "dependencies": {
-        "@coinbase/cdp-sdk": "^1.30.0",
+        "@coinbase/cdp-sdk": "^1.34.0",
         "@xmtp/content-type-wallet-send-calls": "^2.0.0",
-        "@xmtp/node-sdk": "^3.2.2",
-        "dotenv": "^16.4.5",
+        "@xmtp/node-sdk": "^4.0.3",
+        "dotenv": "^17.2.1",
         "uint8arrays": "^5.1.0",
-        "viem": "^2.21.1"
+        "viem": "^2.33.3"
     },
     "devDependencies": {
-        "@types/node": "^22.10.1",
+        "@types/node": "^24.2.1",
         "tsx": "^4.19.2",
-        "typescript": "^5.7.2"
+        "typescript": "^5.9.2"
     }
 }

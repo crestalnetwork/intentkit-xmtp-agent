@@ -28,7 +28,7 @@ export const createUser = async (config: CdpConfig): Promise<User> => {
         });
 
         const cdpAccount = await cdp.evm.getAccount({ address: config.walletAddress as `0x${string}` });
-        const account = toAccount(cdpAccount);
+        const account = toAccount(cdpAccount as any);
 
         const walletClient = createWalletClient({
             account,

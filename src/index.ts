@@ -191,6 +191,9 @@ async function main() {
 
                 console.log("👂 Waiting for messages...\n");
                 for await (const message of stream) {
+                    console.log("👂 Received message:", message);
+                    const inboxState = await client.preferences.inboxState()
+                    console.log("👂 Inbox state:", inboxState);
                     // Skip messages from the agent itself or non-text messages
                     if (
                         message?.senderInboxId.toLowerCase() === client.inboxId.toLowerCase() ||
