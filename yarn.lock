@@ -352,13 +352,6 @@
     "@xmtp/content-type-primitives" "^2.0.2"
     "@xmtp/proto" "^3.78.0"
 
-"@xmtp/content-type-markdown@^1.0.0":
-  version "1.0.0"
-  resolved "https://registry.npmjs.org/@xmtp/content-type-markdown/-/content-type-markdown-1.0.0.tgz"
-  integrity sha512-B0Pevjjxf+Nps8MyMXEklp7jzcwIH42tFzT3FlGTiOSh/0g3o8SgkxPETKGK/ifL5vjV0u4AzeJsgTEbHl/d6Q==
-  dependencies:
-    "@xmtp/content-type-primitives" "^2.0.2"
-
 "@xmtp/content-type-primitives@^2.0.2":
   version "2.0.2"
   resolved "https://registry.npmjs.org/@xmtp/content-type-primitives/-/content-type-primitives-2.0.2.tgz"

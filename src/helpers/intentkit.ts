@@ -588,6 +588,10 @@ export const formatXmtpWalletSendCalls = (walletSendCalls: WalletSendCallsConten
     return result;
 };
 
+
+
+
+
 /**
  * Process IntentKit message and return appropriate content for XMTP
  * This function checks for XMTP attachments and returns the appropriate content type
@@ -624,6 +628,7 @@ export const processIntentKitMessageForXmtp = (message: IntentKitMessage): {
 
     // Default to text message
     let displayText = message.message || "";
+    let contentType = "text";
 
     // Add skill calls if present
     if (message.skill_calls && message.skill_calls.length > 0) {
@@ -654,7 +659,7 @@ export const processIntentKitMessageForXmtp = (message: IntentKitMessage): {
 
     return {
         content: displayText,
-        contentType: "text",
+        contentType,
         displayText
     };
 }; 

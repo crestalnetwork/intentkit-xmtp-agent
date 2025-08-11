@@ -14,11 +14,13 @@ import {
     type IntentKitMessage
 } from "./helpers/intentkit.js";
 import { Client, type XmtpEnv } from "@xmtp/node-sdk";
-import { MarkdownCodec } from "@xmtp/content-type-markdown";
+
 import {
     WalletSendCallsCodec,
     ContentTypeWalletSendCalls
 } from "@xmtp/content-type-wallet-send-calls";
+
+
 
 // Validate required environment variables
 const {
@@ -80,7 +82,7 @@ async function main() {
         console.log("📝 Creating XMTP client with codecs...");
         console.log(`├─ XMTP Environment: ${XMTP_ENV}`);
         console.log(`├─ Database encryption key length: ${dbEncryptionKey.length} bytes`);
-        console.log(`└─ Codecs: MarkdownCodec, WalletSendCallsCodec`);
+        console.log(`└─ Codecs: WalletSendCallsCodec`);
 
         let client: any;
 
@@ -94,7 +96,7 @@ async function main() {
                 dbEncryptionKey,
                 env: XMTP_ENV as XmtpEnv,
                 dbPath,
-                codecs: [new MarkdownCodec(), new WalletSendCallsCodec()],
+                codecs: [new WalletSendCallsCodec()],
             });
             console.log("✅ XMTP client created successfully");
         } catch (clientError: unknown) {
@@ -257,7 +259,7 @@ async function processMessage(
             responseCount++;
             console.log(`📤 Processing IntentKit response ${responseCount}:`, response.author_type);
 
-            await handleIntentKitResponse(conversation, response);
+            await handleIntentKitResponse(client, conversation, response);
         }
 
         if (responseCount === 0) {
@@ -288,6 +290,7 @@ async function processMessage(
  * Handle different types of IntentKit responses
  */
 async function handleIntentKitResponse(
+    client: Client,
     conversation: any,
     response: IntentKitMessage
 ) {
@@ -300,9 +303,9 @@ async function handleIntentKitResponse(
             await conversation.send(processed.content, ContentTypeWalletSendCalls);
             console.log("💳 Sent wallet transaction request");
         } else {
-            // Send as regular text/markdown
+            // Send as regular text (no special handling for markdown)
             await conversation.send(processed.content);
-            console.log(`📝 Sent ${response.author_type} response`);
+            console.log(`📝 Sent ${response.author_type} response as text`);
         }
 
         // Log additional context based on author type
