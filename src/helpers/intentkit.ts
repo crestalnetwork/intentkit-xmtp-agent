@@ -476,7 +476,7 @@ export class IntentKitClient {
 
 /**
  * Format skill calls for display
- * Shows "Calling skill [name] with [parameters]" format
+ * Shows "Calling skill [name]" format
  * For successful calls, hides the response
  * For failed calls, shows the error message
  */
@@ -486,25 +486,8 @@ export const formatSkillCalls = (skillCalls: IntentKitMessage["skill_calls"]): s
     }
 
     const formattedCalls = skillCalls.map(call => {
-        // Format parameters as a readable string
-        let parametersText = "";
-        if (call.parameters && Object.keys(call.parameters).length > 0) {
-            // Create a more readable parameter display
-            const paramEntries = Object.entries(call.parameters).map(([key, value]) => {
-                // Handle different value types
-                if (typeof value === 'string') {
-                    return `${key}: "${value}"`;
-                } else if (typeof value === 'object' && value !== null) {
-                    return `${key}: ${JSON.stringify(value)}`;
-                } else {
-                    return `${key}: ${value}`;
-                }
-            });
-            parametersText = ` with ${paramEntries.join(', ')}`;
-        }
-
-        // Base message: "Calling skill [name] with [parameters]"
-        let result = `🔧 Calling skill **${call.name}**${parametersText}`;
+        // Base message: "Calling skill [name]"
+        let result = `🔧 Calling skill ${call.name}`;
 
         // If the call failed, show the error message
         if (call.success === false && call.error_message) {
