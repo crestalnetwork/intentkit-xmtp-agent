@@ -1,5 +1,16 @@
 # Release Notes
 
+## v0.1.2 (2024-12-30)
+
+### Improvements
+- **improve**: Enhanced IntentKit integration and XMTP message processing - Better handling of IntentKit responses with improved message processing and error handling
+- **fix**: Remove skill params from display - Cleaner skill call presentation without exposing internal parameters
+- **doc**: Update LLM documentation - Updated documentation for better LLM integration guidance
+
+**Full Changelog**: https://github.com/crestalnetwork/intentkit-xmtp-agent/compare/v0.1.1...v0.1.2
+
+---
+
 ## v0.1.1 (2024-12-28)
 
 ### Bug Fixes
