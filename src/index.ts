@@ -13,7 +13,7 @@ import {
     processIntentKitMessageForXmtp,
     type IntentKitMessage
 } from "./helpers/intentkit.js";
-import { Client, type XmtpEnv } from "@xmtp/node-sdk";
+import { Client, type XmtpEnv, type Conversation, type GroupMember } from "@xmtp/node-sdk";
 
 import {
     WalletSendCallsCodec,
@@ -40,6 +40,117 @@ const {
     "CDP_API_KEY_SECRET",
     "CDP_WALLET_SECRET"
 ]);
+
+/**
+ * Monitor for new conversations and send introductory messages
+ */
+async function monitorNewConversations(
+    client: Client,
+    intentKit: IntentKitClient,
+    introducedConversations: Set<string>
+) {
+    console.log("🔄 Starting new conversation monitoring...");
+
+    const MONITOR_INTERVAL_MS = 5000; // Check every 5 seconds
+
+    while (true) {
+        try {
+            await sleep(MONITOR_INTERVAL_MS);
+
+            // Sync to get latest conversations
+            await client.conversations.sync();
+
+            // Get current conversations
+            const currentConversations = await client.conversations.list();
+
+            // Find new conversations
+            const newConversations = currentConversations.filter(
+                conv => !introducedConversations.has(conv.id)
+            );
+
+            for (const conversation of newConversations) {
+                await handleNewConversation(client, intentKit, conversation, introducedConversations);
+            }
+
+        } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.error("❌ Error in conversation monitoring:", errorMessage);
+            // Continue monitoring despite errors
+            await sleep(MONITOR_INTERVAL_MS);
+        }
+    }
+}
+
+/**
+ * Handle a newly detected conversation
+ */
+async function handleNewConversation(
+    client: Client,
+    intentKit: IntentKitClient,
+    conversation: Conversation,
+    introducedConversations: Set<string>
+) {
+    try {
+        console.log(`🆕 New conversation detected: ${conversation.id}`);
+
+        // Mark as introduced immediately to prevent duplicates
+        introducedConversations.add(conversation.id);
+
+        // Get conversation members to determine user wallet address
+        const members = await conversation.members();
+        const otherMembers = members.filter(
+            (member: GroupMember) => member.inboxId.toLowerCase() !== client.inboxId.toLowerCase()
+        );
+
+        if (otherMembers.length === 0) {
+            console.log("⚠️ No other members found in new conversation");
+            return;
+        }
+
+        // Use the first other member's wallet address as user_id
+        const firstOtherMember = otherMembers[0];
+        let userWalletAddress = "unknown";
+
+        // Find the wallet address (identifierKind = 0)
+        const walletIdentifier = firstOtherMember.accountIdentifiers.find(
+            (identifier: any) => identifier.identifierKind === 0
+        );
+
+        if (walletIdentifier) {
+            userWalletAddress = walletIdentifier.identifier;
+        }
+
+        console.log(`👋 Sending introduction to IntentKit for user: ${userWalletAddress}`);
+
+        // Send introduction message to IntentKit
+        const introMessage = "Hello, who are you, and what can you do for me?";
+
+        let responseCount = 0;
+        for await (const response of intentKit.sendMessage(userWalletAddress, introMessage)) {
+            responseCount++;
+            console.log(`🤖 Processing IntentKit introduction response ${responseCount}:`, response.author_type);
+
+            await handleIntentKitResponse(client, conversation, response);
+        }
+
+        if (responseCount === 0) {
+            console.log("⚠️ No introduction response received from IntentKit");
+            await conversation.send("🤖 Hello! I'm your AI assistant, but I couldn't get my introduction message. Feel free to ask me anything!");
+        } else {
+            console.log(`✅ Sent ${responseCount} introduction response(s) to new conversation\n`);
+        }
+
+    } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error(`❌ Error handling new conversation ${conversation.id}:`, errorMessage);
+
+        try {
+            await conversation.send("🤖 Hello! I'm your AI assistant. Something went wrong with my introduction, but I'm ready to help you!");
+        } catch (fallbackError) {
+            console.error("❌ Failed to send fallback introduction:", fallbackError);
+        }
+    }
+}
 
 async function main() {
     console.log("🚀 Starting IntentKit XMTP Agent...\n");
@@ -179,7 +290,17 @@ async function main() {
         await client.conversations.sync();
         console.log("✅ Conversations synced\n");
 
-        // Start message streaming with retry mechanism
+        // Keep track of conversations we've sent introductions to
+        const introducedConversations = new Set<string>();
+
+        // Get existing conversations to avoid sending introductions to them
+        const existingConversations = await client.conversations.list();
+        existingConversations.forEach((conv: Conversation) => {
+            introducedConversations.add(conv.id);
+        });
+        console.log(`📋 Existing conversations tracked: ${introducedConversations.size}`);
+
+        // Start both message streaming and conversation monitoring with retry mechanism
         const MAX_RETRIES = 6;
         const RETRY_DELAY_MS = 10000;
         let retryCount = 0;
@@ -187,10 +308,14 @@ async function main() {
         while (retryCount < MAX_RETRIES) {
             try {
                 console.log(`🎧 Starting message stream... (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-                const stream = await client.conversations.streamAllMessages();
+                const messageStream = await client.conversations.streamAllMessages();
+
+                console.log("🆕 Starting new conversation monitoring...");
+                // Start conversation monitoring in parallel
+                void monitorNewConversations(client, intentKit, introducedConversations);
 
                 console.log("👂 Waiting for messages...\n");
-                for await (const message of stream) {
+                for await (const message of messageStream) {
                     // Skip messages from the agent itself or non-text messages
                     if (
                         message?.senderInboxId.toLowerCase() === client.inboxId.toLowerCase() ||
