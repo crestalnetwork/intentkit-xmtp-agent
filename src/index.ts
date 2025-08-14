@@ -316,17 +316,25 @@ async function handleIntentKitResponse(
     response: IntentKitMessage
 ) {
     try {
-        // Process the message for XMTP, checking for wallet send calls attachments
-        const processed = processIntentKitMessageForXmtp(response);
+        // Process the message for XMTP, which now returns multiple messages
+        const processedMessages = processIntentKitMessageForXmtp(response);
 
-        if (processed.contentType === "xmtp/content-type-wallet-send-calls") {
-            // Send as wallet send calls content type with explicit content type
-            await conversation.send(processed.content, ContentTypeWalletSendCalls);
-            console.log("💳 Sent wallet transaction request");
-        } else {
-            // Send as regular text (no special handling for markdown)
-            await conversation.send(processed.content);
-            console.log(`📝 Sent ${response.author_type} response as text`);
+        console.log(`📤 Processing ${processedMessages.length} XMTP message(s) from ${response.author_type} response`);
+
+        // Send each message sequentially
+        for (let i = 0; i < processedMessages.length; i++) {
+            const processed = processedMessages[i];
+            const messageNum = processedMessages.length > 1 ? ` (${i + 1}/${processedMessages.length})` : '';
+
+            if (processed.contentType === "xmtp/content-type-wallet-send-calls") {
+                // Send as wallet send calls content type with explicit content type
+                await conversation.send(processed.content, ContentTypeWalletSendCalls);
+                console.log(`💳 Sent wallet transaction request${messageNum}`);
+            } else {
+                // Send as regular text (no special handling for markdown)
+                await conversation.send(processed.content);
+                console.log(`📝 Sent text message${messageNum}: "${processed.displayText.substring(0, 50)}..."`);
+            }
         }
 
         // Log additional context based on author type

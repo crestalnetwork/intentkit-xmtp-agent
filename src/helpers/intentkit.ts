@@ -576,73 +576,103 @@ export const formatXmtpWalletSendCalls = (walletSendCalls: WalletSendCallsConten
 
 
 /**
- * Process IntentKit message and return appropriate content for XMTP
- * This function checks for XMTP attachments and returns the appropriate content type
+ * Process IntentKit message and return multiple XMTP messages
+ * This function splits a single IntentKit message into multiple XMTP messages:
+ * 1. First, render the message field as one XMTP message
+ * 2. Then, render each skill call as a separate XMTP message  
+ * 3. Finally, render each attachment as a separate XMTP message
  */
-export const processIntentKitMessageForXmtp = (message: IntentKitMessage): {
+export const processIntentKitMessageForXmtp = (message: IntentKitMessage): Array<{
     content: any;
     contentType?: string;
     displayText: string;
-} => {
-    // Check for XMTP wallet send calls first (highest priority)
-    if (hasXmtpAttachments(message)) {
-        const walletSendCalls = extractXmtpWalletSendCalls(message);
-        if (walletSendCalls) {
-            // Create display text for the transaction
-            let displayText = message.message || "";
-            if (walletSendCalls.calls && Array.isArray(walletSendCalls.calls)) {
-                const transactionText = `💳 Transaction Request (${walletSendCalls.calls.length} calls)` +
-                    (walletSendCalls.description ? `\n📝 ${walletSendCalls.description}` : "");
+}> => {
+    const xmtpMessages: Array<{
+        content: any;
+        contentType?: string;
+        displayText: string;
+    }> = [];
 
-                if (displayText) {
-                    displayText += "\n\n" + transactionText;
-                } else {
-                    displayText = transactionText;
-                }
-            }
-
-            return {
-                content: walletSendCalls,
-                contentType: "xmtp/content-type-wallet-send-calls",
-                displayText
-            };
-        }
+    // 1. First, process the main message if it exists
+    if (message.message && message.message.trim()) {
+        xmtpMessages.push({
+            content: message.message.trim(),
+            contentType: "text",
+            displayText: message.message.trim()
+        });
     }
 
-    // Default to text message
-    let displayText = message.message || "";
-    let contentType = "text";
-
-    // Add skill calls if present
+    // 2. Then, process each skill call as a separate message
     if (message.skill_calls && message.skill_calls.length > 0) {
-        const skillCallsText = formatSkillCalls(message.skill_calls);
-        if (displayText) {
-            displayText += "\n\n" + skillCallsText;
-        } else {
-            displayText = skillCallsText;
+        for (const skillCall of message.skill_calls) {
+            const skillCallText = formatSingleSkillCall(skillCall);
+            xmtpMessages.push({
+                content: skillCallText,
+                contentType: "text",
+                displayText: skillCallText
+            });
         }
     }
 
-    // Add other attachments info if present
+    // 3. Finally, process each attachment as a separate message
     if (message.attachments && message.attachments.length > 0) {
-        const nonXmtpAttachments = message.attachments.filter(att => att.type !== "xmtp");
-        if (nonXmtpAttachments.length > 0) {
-            const attachmentsText = `📎 Attachments (${nonXmtpAttachments.length}):` +
-                nonXmtpAttachments.map((att, idx) =>
-                    `\n${idx + 1}. ${att.type}: ${att.url || 'embedded content'}`
-                ).join("");
+        for (const attachment of message.attachments) {
+            if (attachment.type === "xmtp") {
+                // Handle XMTP wallet send calls specially
+                if (attachment.json) {
+                    const walletSendCalls = attachment.json;
+                    let displayText = "";
 
-            if (displayText) {
-                displayText += "\n\n" + attachmentsText;
+                    if (walletSendCalls.calls && Array.isArray(walletSendCalls.calls)) {
+                        displayText = `💳 Transaction Request (${walletSendCalls.calls.length} calls)` +
+                            (walletSendCalls.description ? `\n📝 ${walletSendCalls.description}` : "");
+                    } else {
+                        displayText = "💳 Transaction Request";
+                    }
+
+                    xmtpMessages.push({
+                        content: walletSendCalls,
+                        contentType: "xmtp/content-type-wallet-send-calls",
+                        displayText
+                    });
+                }
             } else {
-                displayText = attachmentsText;
+                // Handle other attachment types as text
+                const attachmentText = `📎 ${attachment.type}: ${attachment.url || 'embedded content'}`;
+                xmtpMessages.push({
+                    content: attachmentText,
+                    contentType: "text",
+                    displayText: attachmentText
+                });
             }
         }
     }
 
-    return {
-        content: displayText,
-        contentType,
-        displayText
-    };
-}; 
+    // If no messages were generated, return a default empty message
+    if (xmtpMessages.length === 0) {
+        xmtpMessages.push({
+            content: "(No content)",
+            contentType: "text",
+            displayText: "(No content)"
+        });
+    }
+
+    return xmtpMessages;
+};
+
+/**
+ * Format a single skill call for display
+ */
+export const formatSingleSkillCall = (skillCall: NonNullable<IntentKitMessage["skill_calls"]>[0]): string => {
+    // Base message: "Calling skill [name]"
+    let result = `🔧 Calling skill ${skillCall.name}`;
+
+    // If the call failed, show the error message
+    if (skillCall.success === false && skillCall.error_message) {
+        result += `\n   ❌ Error: ${skillCall.error_message}`;
+    }
+    // For successful calls, we don't show the response (hide it as requested)
+
+    return result;
+};
+
