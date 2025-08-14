@@ -1,5 +1,21 @@
 # Release Notes
 
+## v0.1.3 (2024-12-30)
+
+### New Features
+- **feat**: Automatic conversation monitoring and introduction messages - Added proactive monitoring for new XMTP conversations with automatic introduction messages for enhanced user experience
+
+### Technical Improvements
+- Added `monitorNewConversations()` function for real-time conversation detection
+- Added `handleNewConversation()` function for processing new conversation introductions  
+- Enhanced conversation tracking with `introducedConversations` Set to prevent duplicate introductions
+- Improved parallel processing with conversation monitoring running alongside message streaming
+- Added proper error handling for introduction message failures with fallback messages
+
+**Full Changelog**: https://github.com/crestalnetwork/intentkit-xmtp-agent/compare/v0.1.2...v0.1.3
+
+---
+
 ## v0.1.2 (2024-12-30)
 
 ### Improvements
